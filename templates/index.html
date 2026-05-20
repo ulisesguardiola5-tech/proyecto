@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32-S3 IoT Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg:           #0a0e1a;
+            --bg2:          #0e1425;
+            --panel:        #111827;
+            --panel-border: #1e2d45;
+            --accent:       #00e5ff;
+            --accent2:      #ff4d6d;
+            --accent3:      #a3ff6f;
+            --text:         #cde3f5;
+            --text-muted:   #4e7a9e;
+            --mono:         'Share Tech Mono', monospace;
+            --sans:         'Exo 2', sans-serif;
+            --glow:         0 0 16px rgba(0,229,255,0.25);
+            --glow-red:     0 0 16px rgba(255,77,109,0.35);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image:
+                radial-gradient(ellipse at 10% 20%, rgba(0,80,120,0.18) 0%, transparent 55%),
+                radial-gradient(ellipse at 90% 80%, rgba(0,40,80,0.22) 0%, transparent 50%);
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent, transparent 3px,
+                rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px
+            );
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        /* ── Header ── */
+        header {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 28px 40px 20px;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(10,14,26,0.85);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-mark {
+            width: 42px; height: 42px;
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--mono);
+            font-size: 13px;
+            color: var(--accent);
+            letter-spacing: 1px;
+            animation: pulse-border 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-border {
+            0%, 100% { box-shadow: var(--glow), inset 0 0 10px rgba(0,229,255,0.08); }
+            50%       { box-shadow: 0 0 28px rgba(0,229,255,0.5), inset 0 0 16px rgba(0,229,255,0.15); }
+        }
+
+        header h1 {
+            font-family: var(--sans);
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text);
+        }
+
+        header h1 span { color: var(--accent); }
+
+        /* ── Main layout ── */
+        main {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            grid-template-rows: auto auto auto;
+            gap: 20px;
+            padding: 28px 40px 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            padding: 24px 28px;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: 0.5;
+        }
+
+        .card::after {
+            content: '';
+            position: absolute;
+            bottom: 0; right: 0;
+            width: 40px; height: 40px;
+            border-bottom: 1px solid rgba(0,229,255,0.2);
+            border-right:  1px solid rgba(0,229,255,0.2);
+            border-radius: 0 0 14px 0;
+            pointer-events: none;
+        }
+
+        .card:hover { border-color: rgba(0,229,255,0.3); }
+
+        .card-title {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+        }
+
+        /* ── Grid placement ── */
+        .card-status    { grid-column: 1; grid-row: 1; }
+        .card-threshold { grid-column: 1; grid-row: 2; }
+        .card-pwm       { grid-column: 1; grid-row: 3; }
+        .card-chart     {
+            grid-column: 2;
+            grid-row: 1 / 4;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Metric rows ── */
+        .metric-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .metric-row:last-of-type { border-bottom: none; }
+
+        .metric-label {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+        }
+
+        .metric-value {
+            font-family: var(--mono);
+            font-size: 18px;
+            color: var(--accent);
+        }
+
+        .metric-unit {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-left: 4px;
+        }
+
+        /* ── LED virtual (boton fisico) ── */
+        .led-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #led {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            background: var(--accent2);
+            box-shadow: 0 0 8px var(--accent2), 0 0 20px rgba(255,77,109,0.4);
+            transition: background 0.3s, box-shadow 0.3s;
+            flex-shrink: 0;
+        }
+
+        #led.on {
+            background: var(--accent3);
+            box-shadow: 0 0 8px var(--accent3), 0 0 20px rgba(163,255,111,0.45);
+        }
+
+        /* ── Alarma ADC ── */
+        #alarma {
+            margin-top: 18px;
+            font-family: var(--mono);
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            color: var(--accent3);
+            background: rgba(163,255,111,0.07);
+            border: 1px solid rgba(163,255,111,0.2);
+            border-radius: 8px;
+            padding: 10px 14px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        #alarma.alarm {
+            color: var(--accent2);
+            background: rgba(255,77,109,0.08);
+            border-color: rgba(255,77,109,0.3);
+            animation: shake 0.4s ease;
+        }
+
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            25%      { transform: translateX(-4px); }
+            75%      { transform: translateX(4px); }
+        }
+
+        /* ── Sliders ── */
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 16px;
+        }
+
+        .slider-display {
+            font-family: var(--mono);
+            font-size: 26px;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        .slider-display span {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-left: 3px;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+            background: linear-gradient(
+                to right,
+                var(--accent) 0%,
+                var(--accent) var(--val, 50%),
+                rgba(0,229,255,0.12) var(--val, 50%),
+                rgba(0,229,255,0.12) 100%
+            );
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 10px rgba(0,229,255,0.6);
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+            box-shadow: 0 0 18px rgba(0,229,255,0.9);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 10px rgba(0,229,255,0.6);
+            border: none;
+            cursor: pointer;
+        }
+
+        /* ── Grafica ── */
+        .chart-container {
+            flex: 1;
+            min-height: 320px;
+            position: relative;
+        }
+
+        canvas {
+            background: #020617;
+            border-radius: 12px;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 800px) {
+            main {
+                grid-template-columns: 1fr;
+                padding: 16px;
+            }
+            .card-chart { grid-column: 1; grid-row: auto; }
+            header { padding: 18px 20px 14px; }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <div class="logo-mark">S3</div>
+    <h1>ESP<span>32-S3</span> &middot; Dashboard IoT</h1>
+</header>
+
+<main>
+
+    <!-- ── Tarjeta de estado ── -->
+    <div class="card card-status">
+        <p class="card-title">Estado del sistema</p>
+
+        <div class="metric-row">
+            <span class="metric-label">ADC</span>
+            <span class="metric-value"><span id="adc_value">0.000</span><span class="metric-unit">V</span></span>
+        </div>
+
+        <div class="metric-row">
+            <span class="metric-label">Threshold</span>
+            <span class="metric-value"><span id="threshold_value">1.65</span><span class="metric-unit">V</span></span>
+        </div>
+
+        <div class="metric-row">
+            <span class="metric-label">PWM actual</span>
+            <span class="metric-value"><span id="pwm_display">50</span><span class="metric-unit">%</span></span>
+        </div>
+
+        <!-- Boton fisico (pin logico) -->
+        <div class="metric-row">
+            <span class="metric-label">Boton (PIN)</span>
+            <div class="led-wrap">
+                <div id="led"></div>
+                <span class="metric-value" style="font-size:15px" id="pin_value">0</span>
+            </div>
+        </div>
+
+        <!-- Indicador de alarma ADC vs Threshold -->
+        <p id="alarma">NORMAL</p>
+    </div>
+
+    <!-- ── Slider Threshold ── -->
+    <div class="card card-threshold">
+        <p class="card-title">Threshold</p>
+        <div class="slider-header">
+            <span style="font-size:12px;color:var(--text-muted);font-family:var(--mono);letter-spacing:1px">Umbral de voltaje</span>
+            <div class="slider-display"><span id="slider_th_value">1.65</span><span>V</span></div>
+        </div>
+        <input type="range" id="threshold_slider"
+               min="0" max="3.3" step="0.05" value="1.65"
+               oninput="mostrarThreshold(this.value)"
+               onchange="enviarThreshold(this.value)">
+    </div>
+
+    <!-- ── Slider PWM ── -->
+    <div class="card card-pwm">
+        <p class="card-title">Ciclo de trabajo PWM</p>
+        <div class="slider-header">
+            <span style="font-size:12px;color:var(--text-muted);font-family:var(--mono);letter-spacing:1px">Duty cycle</span>
+            <div class="slider-display"><span id="slider_pwm_value">50</span><span>%</span></div>
+        </div>
+        <input type="range" id="pwm_slider"
+               min="0" max="100" step="1" value="50"
+               oninput="mostrarDuty(this.value)"
+               onchange="enviarDuty(this.value)">
+    </div>
+
+    <!-- ── Grafica ADC vs Threshold ── -->
+    <div class="card card-chart">
+        <p class="card-title">ADC vs Threshold &mdash; historial</p>
+        <div class="chart-container">
+            <canvas id="grafica"></canvas>
+        </div>
+    </div>
+
+</main>
+
+<script>
+
+/* ── Relleno visual de los sliders ── */
+function updateSliderFill(el) {
+    const min = parseFloat(el.min);
+    const max = parseFloat(el.max);
+    const val = parseFloat(el.value);
+    const pct = ((val - min) / (max - min) * 100).toFixed(1) + '%';
+    el.style.setProperty('--val', pct);
+}
+
+document.querySelectorAll('input[type="range"]').forEach(function(s) {
+    updateSliderFill(s);
+    s.addEventListener('input', function() { updateSliderFill(s); });
+});
+
+/* ── Grafica Chart.js ── */
+const ctx = document.getElementById("grafica").getContext("2d");
+
+const chart = new Chart(ctx, {
+    type: "line",
+    data: {
+        labels: [],
+        datasets: [
+            {
+                label: "ADC",
+                data: [],
+                borderColor: "#00e5ff",
+                backgroundColor: "rgba(0,229,255,0.08)",
+                borderWidth: 2,
+                pointRadius: 3,
+                pointBackgroundColor: "#00e5ff",
+                tension: 0.35,
+                fill: true
+            },
+            {
+                label: "Threshold",
+                data: [],
+                borderColor: "#ff4d6d",
+                backgroundColor: "transparent",
+                borderWidth: 2,
+                borderDash: [6, 5],
+                pointRadius: 0,
+                tension: 0
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+            legend: {
+                labels: {
+                    color: "#4e7a9e",
+                    font: { family: "'Share Tech Mono', monospace", size: 11 },
+                    boxWidth: 18,
+                    padding: 16
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: { color: "#2e5070", font: { family: "'Share Tech Mono', monospace", size: 10 } },
+                grid:  { color: "rgba(255,255,255,0.04)" }
+            },
+            y: {
+                min: 0,
+                max: 3.3,
+                ticks: { color: "#2e5070", font: { family: "'Share Tech Mono', monospace", size: 10 } },
+                grid:  { color: "rgba(255,255,255,0.06)" }
+            }
+        }
+    }
+});
+
+/* ── Slider Threshold ── */
+function mostrarThreshold(valor) {
+    document.getElementById("slider_th_value").innerText = parseFloat(valor).toFixed(1);
+}
+
+function enviarThreshold(valor) {
+    fetch("/threshold", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ threshold: parseFloat(valor) })
+    })
+    .then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+    })
+    .then(function(data) { console.log("Threshold enviado:", data); })
+    .catch(function(err) { console.error("Error threshold:", err); });
+}
+
+/* ── Slider PWM ── */
+function mostrarDuty(valor) {
+    document.getElementById("slider_pwm_value").innerText = valor;
+}
+
+function enviarDuty(valor) {
+    fetch("/control_pwm", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ pwm: parseFloat(valor) })
+    })
+    .then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+    })
+    .then(function(data) { console.log("PWM enviado:", data); })
+    .catch(function(err) { console.error("Error PWM:", err); });
+}
+
+/* ── Polling al servidor cada 1 segundo ── */
+function actualizarDashboard() {
+    fetch("/refresh")
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+
+            var adc_array = data.adc1;
+            var threshold = data.threshold;
+            var pin23     = data.pin23;
+            var pwm_val   = data.pwm;
+
+            if (!adc_array || adc_array.length === 0) return;
+
+            var ultimo_adc = adc_array[adc_array.length - 1];
+
+            /* Actualizar metricas */
+            document.getElementById("adc_value").innerText       = Number(ultimo_adc).toFixed(3);
+            document.getElementById("threshold_value").innerText  = Number(threshold).toFixed(2);
+            document.getElementById("pwm_display").innerText      = Number(pwm_val).toFixed(0);
+            document.getElementById("pin_value").innerText        = pin23;
+
+            /* LED virtual del boton fisico */
+            var led = document.getElementById("led");
+            if (pin23 == 1) {
+                led.classList.add("on");
+            } else {
+                led.classList.remove("on");
+            }
+
+            /* Alarma ADC vs Threshold */
+            var alarma = document.getElementById("alarma");
+            if (ultimo_adc > threshold) {
+                alarma.innerText = "ALARMA: ADC supera el umbral";
+                alarma.classList.add("alarm");
+            } else {
+                alarma.innerText = "NORMAL";
+                alarma.classList.remove("alarm");
+            }
+
+            /* Actualizar grafica */
+            chart.data.labels            = data.time;
+            chart.data.datasets[0].data  = adc_array;
+            chart.data.datasets[1].data  = adc_array.map(function() { return threshold; });
+            chart.update();
+        })
+        .catch(function(err) { console.error("Error fetch /refresh:", err); });
+}
+
+setInterval(actualizarDashboard, 1000);
+actualizarDashboard();
+
+</script>
+</body>
+</html>
